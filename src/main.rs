@@ -20,11 +20,12 @@ fn main() -> anyhow::Result<()> {
         terminal::DisableLineWrap,
     )?;
 
-    let mut save_path = "main.txt".to_string();
+    let mut save_path = None;
     let mut editor = if let Some(path) = std::env::args().skip(1).next() {
-        save_path = path.clone();
-        let contents = std::fs::read_to_string(path)?;
-        Editor::from_buffer(contents)
+        save_path = Some(path.clone());
+        std::fs::read_to_string(path)
+            .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
+            .unwrap_or(Editor::new())
     } else {
         Editor::new()
     };
@@ -57,6 +58,12 @@ fn main() -> anyhow::Result<()> {
                             editor.delete_char();
                             dirty = true;
                         },
+                        KeyCode::Delete => {
+                            editor.delete_char_front();
+                            dirty = true;
+                        },
+                        KeyCode::Home => editor.home(),
+                        KeyCode::End => editor.end(),
                         _ => {}
                     }
                 },
@@ -69,7 +76,7 @@ fn main() -> anyhow::Result<()> {
                 )?;
                 for (line_idx, line)
                 in editor.get_buffer_lines()
-                    .into_iter()
+                    .iter()
                     .enumerate()
                 {
                     exec!(
@@ -94,16 +101,45 @@ fn main() -> anyhow::Result<()> {
     }
     exec!(terminal::LeaveAlternateScreen, cursor::Show)?;
     terminal::disable_raw_mode()?;
-    
-    print!("save to (default `main.txt` or input file): ");
-    std::io::stdout().flush()?;
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
-    save_path = match input.trim() {
-        "" => save_path,
-        other => other.to_string(),
-    };
-    std::fs::write(save_path, editor.get_buffer_lines().join("\n").as_bytes())?;
-    
-    Ok(())
+
+    if save_path.is_none() {
+        print!("save to: ");
+        std::io::stdout().flush()?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let trimmed = input.trim();
+        if !trimmed.is_empty() {
+            save_path = Some(trimmed.to_string());
+        }
+    }
+    if let Some(p) = save_path {
+        let contents = editor.get_buffer_lines().join("\n");
+        std::fs::write(p, contents.as_bytes())?;
+        println!("file saved");
+        Ok(())
+    } else {
+        loop {
+            print!("do you want to save changes? [y/N] ");
+            std::io::stdout().flush()?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            match input.trim() {
+                "y" | "Y" => break,
+                "n" | "N" | "" => return Ok(()),
+                _ => continue,
+            }
+        }
+        print!("save to: ");
+        std::io::stdout().flush()?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let trimmed = input.trim();
+        if !trimmed.is_empty() {
+            std::fs::write(trimmed, editor.get_buffer_lines().join("\n").as_bytes())?;
+            println!("file saved");
+        } else {
+            println!("save cancelled");
+        }
+        Ok(())
+    }
 }

@@ -2,18 +2,6 @@
 
 a tiny code editor written in Rust
 
-## features
-
-- basic character insertion/deletion
-- cursor movement
-- file saving
-- line numbers
-- indentation inheritance
-- no copy/paste
-- no multiple buffers
-- no scrolling window
-- will probably error randomly
-
 ## installation
 
 ```bash

@@ -67,7 +67,6 @@ impl Editor {
 
     pub fn undo(&mut self) {
         if let Some((a, pos)) = self.undo_stack.pop() {
-            // avoid recomputation
             let mut searched_main_idx = None;
             let extra = match a.extra {
                 ExtraAction::Restore(id, s) => {
@@ -381,10 +380,8 @@ impl Editor {
 
     pub fn home(&mut self) {
         let (cx, _) = self.cursor_pos;
-        if cx > 0 {
-            self.cursor_pos.0 = 0;
-        } else {
-            self.cursor_pos.0 = 0;
+        self.cursor_pos.0 = 0;
+        if cx < 1 {
             self.cursor_pos.1 = 0;
         }
     }

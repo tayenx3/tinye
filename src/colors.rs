@@ -15,13 +15,13 @@ pub struct ColorScheme {
 
 impl ColorScheme {
     pub const DEFAULT: Self = Self {
-        fg:            Color::White,
-        bg:            Color::Reset,
-        gutter_fg:     Color::DarkGrey,
-        gutter_bg:     Color::Black,
-        line_num_fg:   Color::Yellow,
-        status_bar_fg: Color::Black,
-        status_bar_bg: Color::Cyan,
+        fg:            Color::Rgb { r: 0xC8, g: 0xD3, b: 0xF2 },
+        bg:            Color::Rgb { r: 0x0A, g: 0x0F, b: 0x1E },
+        gutter_fg:     Color::Rgb { r: 0x94, g: 0x99, b: 0xB2 },
+        gutter_bg:     Color::Rgb { r: 0x1B, g: 0x1D, b: 0x2B },
+        line_num_fg:   Color::Rgb { r: 0xFF, g: 0xC7, b: 0x77 },
+        status_bar_fg: Color::Rgb { r: 0x1B, g: 0x1D, b: 0x2B },
+        status_bar_bg: Color::Rgb { r: 0x86, g: 0xE1, b: 0xFC },
     };
     pub const WILD_ROSES: Self = Self {
         fg:            Color::Rgb { r: 0xD9, g: 0xD0, b: 0xDE },

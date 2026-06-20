@@ -36,28 +36,36 @@ fn render_status_bar<P: AsRef<str>>(
     cursor_pos: (usize, usize),
     theme: ColorScheme
 ) -> anyhow::Result<()> {
-    let mut status_bar = match file_name {
-        Some(p) => format!(
-            " {} │ {}:{}",
-            p.as_ref(),
-            cursor_pos.1 + 1, // line
-            cursor_pos.0 + 1, // col
-        ),
-        None => format!(
-            " {}:{}",
-            cursor_pos.1 + 1, // line
-            cursor_pos.0 + 1, // col
-        ),
-    };
-    status_bar.truncate(term_size.0 as usize);
-    let sb_len = status_bar.len();
     exec!(
         cursor::SavePosition,
+        cursor::MoveTo(0, term_size.1.saturating_sub(1))
+    )?;
+    let mut file_name_len = 0;
+    if let Some(p) = file_name {
+        file_name_len = p.as_ref().len() + 1;
+        let mut fmt = format!(" {} ", p.as_ref());
+        fmt.truncate(Editor::char_to_byte(term_size.0 as usize - 1, &fmt));
+        exec!(
+            style::SetForegroundColor(theme.status_bar_bg),
+            style::SetBackgroundColor(theme.status_bar_fg),
+            style::Print(fmt),
+        )?;
+    }
+    let mut pos_fmt = format!(
+        " {}:{} ",
+        cursor_pos.1 + 1, // line
+        cursor_pos.0 + 1, // col
+    );
+    pos_fmt.truncate(Editor::char_to_byte(
+        (term_size.0 as usize).saturating_sub(file_name_len + 1),
+        &pos_fmt
+    ));
+    let sb_len = file_name_len + pos_fmt.len();
+    exec!(
         style::SetForegroundColor(theme.status_bar_fg),
         style::SetBackgroundColor(theme.status_bar_bg),
-        cursor::MoveTo(0, term_size.1 - 1),
-        style::Print(status_bar),
-        style::Print(" ".repeat(term_size.0 as usize - sb_len)),
+        style::Print(pos_fmt),
+        style::Print(" ".repeat((term_size.0 as usize).saturating_sub(sb_len))),
         style::SetForegroundColor(theme.fg),
         style::SetBackgroundColor(theme.bg),
         cursor::RestorePosition,
@@ -209,14 +217,15 @@ fn main() -> anyhow::Result<()> {
                 },
                 _ => {}
             }
+            let sc_amt = editor.get_scroll_amount();
             let buffer_lines = editor.get_visible_buffer_lines(term_size.1);
-            let digit_len = buffer_lines.last().map(|(idx, _)| (idx + 1).ilog10() + 1).unwrap_or(1);
+            let digit_len = (buffer_lines.len().max(1) + sc_amt).ilog10() as usize + 1;
             if dirty {
                 exec!(
                     terminal::Clear(terminal::ClearType::All),
                     cursor::SavePosition
                 )?;
-                let mut lines = buffer_lines.iter();
+                let mut lines = buffer_lines.iter().enumerate();
                 let mut line_idx = 0..(term_size.1 as usize).saturating_sub(1);
                 while let (Some(idx), line) = (line_idx.next(), lines.next()) {
                     exec!(
@@ -226,7 +235,7 @@ fn main() -> anyhow::Result<()> {
                     match line {
                         Some((line_idx, _)) => exec!(
                             style::SetForegroundColor(theme.line_num_fg),
-                            style::Print(format!(" {:>w$} ", line_idx + 1, w = digit_len as usize))
+                            style::Print(format!(" {:>w$} ", line_idx + sc_amt + 1, w = digit_len as usize))
                         )?,
                         None => exec!(
                             style::SetForegroundColor(theme.gutter_fg),
@@ -240,8 +249,8 @@ fn main() -> anyhow::Result<()> {
                         style::SetBackgroundColor(theme.bg),
                         style::Print(" "),
                     )?;
-                    if let Some((_, line)) = line {
-                        if line.len() < term_size.0 as usize {
+                    if let Some((_, (_, line))) = line {
+                        if line.chars().count() < term_size.0 as usize {
                             exec!(style::Print(format!(
                                 "{}{}",
                                 line,
@@ -263,7 +272,6 @@ fn main() -> anyhow::Result<()> {
             }
             let pos = editor.get_pos();
             render_status_bar(save_path.as_ref(), term_size, pos, theme)?;
-            let sc_amt = editor.get_scroll_amount();
             if pos.1 >= sc_amt && pos.1 <= (term_size.1 as usize - 2 + sc_amt) {
                 exec!(
                     cursor::MoveTo(

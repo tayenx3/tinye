@@ -1,6 +1,6 @@
 # `tinye`
 
-a lightweight terminal-based code editor written in Rust
+a lightweight, non-modal, keyboard-driven, terminal-based code editor written in Rust
 
 ## preview
 

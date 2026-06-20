@@ -2,7 +2,11 @@
 name = "tinye"
 version = "0.1.0"
 edition = "2024"
+description = "a lightweight terminal-based code editor"
+authors = ["tayenx3 <kontajiousgd00gmail.com>"]
+repository = "https://github.com/tayenx3/tinye"
 
 [dependencies]
 anyhow = "1.0.102"
+clap = { version = "4.6.1", features = ["derive"] }
 crossterm = "0.29.0"

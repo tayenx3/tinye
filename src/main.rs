@@ -3,11 +3,52 @@ mod editor;
 use crossterm::{cursor, event::{self, Event, KeyCode}, style, terminal};
 use std::{io::Write, time::Duration};
 use editor::Editor;
+use clap::Parser;
 
 macro_rules! exec {
     ( $( $command:expr ),+ $(,)? ) => {
         ::crossterm::execute!(::std::io::stdout(), $( $command ),+)
     }
+}
+
+#[derive(Parser)]
+#[command(
+    name = "tinye",
+    about = "a lightweight terminal-based code editor written in Rust",
+    version,
+)]
+pub struct Cli {
+    input: Option<String>
+}
+
+fn render_status_bar<P: AsRef<str>>(file_name: Option<P>, term_size: (u16, u16), cursor_pos: (usize, usize)) -> anyhow::Result<()> {
+    let mut status_bar = match file_name {
+        Some(p) => format!(
+            " {} │ {}:{}",
+            p.as_ref(),
+            cursor_pos.1 + 1, // line
+            cursor_pos.0 + 1, // col
+        ),
+        None => format!(
+            " {}:{}",
+            cursor_pos.1 + 1, // line
+            cursor_pos.0 + 1, // col
+        ),
+    };
+    status_bar.truncate(term_size.0 as usize);
+    let sb_len = status_bar.len();
+    exec!(
+        cursor::SavePosition,
+        style::SetBackgroundColor(style::Color::Cyan),
+        style::SetForegroundColor(style::Color::Black),
+        cursor::MoveTo(0, term_size.1 - 1),
+        style::Print(status_bar),
+        style::Print(" ".repeat(term_size.0 as usize - sb_len)),
+        style::SetBackgroundColor(style::Color::Reset),
+        style::SetForegroundColor(style::Color::Reset),
+        cursor::RestorePosition,
+    )?;
+    Ok(())
 }
 
 fn save<T: AsRef<str>>(path: Option<T>, contents: &str) -> anyhow::Result<()> {
@@ -54,6 +95,8 @@ fn save<T: AsRef<str>>(path: Option<T>, contents: &str) -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    
     terminal::enable_raw_mode()?;
     exec!(
         terminal::EnterAlternateScreen,
@@ -63,8 +106,9 @@ fn main() -> anyhow::Result<()> {
         terminal::DisableLineWrap,
     )?;
 
+    let mut term_size = terminal::size()?;
     let mut save_path = None;
-    let mut editor = if let Some(path) = std::env::args().nth(1) {
+    let mut editor = if let Some(path) = cli.input {
         save_path = Some(path.clone());
         std::fs::read_to_string(path)
             .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
@@ -73,10 +117,10 @@ fn main() -> anyhow::Result<()> {
         Editor::new()
     };
 
+    // this just means if the VIEW BUFFER is dirty, not the actual editor buffer
     let mut dirty = true;
     'main: loop {
         if event::poll(Duration::from_millis(10))? {
-            let digit_len = editor.get_buffer_lines().len().ilog10() + 1;
             match event::read()? {
                 Event::Key(key_event) if key_event.kind != event::KeyEventKind::Release => {
                     match key_event.code {
@@ -93,8 +137,24 @@ fn main() -> anyhow::Result<()> {
                             },
                         KeyCode::Right => editor.move_right(),
                         KeyCode::Left => editor.move_left(),
-                        KeyCode::Up => editor.move_up(),
-                        KeyCode::Down => editor.move_down(),
+                        KeyCode::Up => if key_event.modifiers.contains(event::KeyModifiers::ALT) {
+                            editor.scroll_up(5);
+                            dirty = true;
+                        } else if key_event.modifiers.contains(event::KeyModifiers::CONTROL) {
+                            editor.scroll_up(1);
+                            dirty = true;
+                        } else {
+                            editor.move_up();
+                        },
+                        KeyCode::Down => if key_event.modifiers.contains(event::KeyModifiers::ALT) {
+                            editor.scroll_down(5);
+                            dirty = true;
+                        } else if key_event.modifiers.contains(event::KeyModifiers::CONTROL) {
+                            editor.scroll_down(1);
+                            dirty = true;
+                        } else {
+                            editor.move_down();
+                        },
                         KeyCode::Enter => {
                             editor.insert_char('\n');
                             dirty = true;
@@ -117,44 +177,84 @@ fn main() -> anyhow::Result<()> {
                         },
                         KeyCode::Home => editor.home(),
                         KeyCode::End => editor.end(),
+                        KeyCode::PageUp => {
+                            editor.scroll_up(term_size.1 as usize - 1);
+                            dirty = true;
+                        },
+                        KeyCode::PageDown => {
+                            editor.scroll_down(term_size.1 as usize - 1);
+                            dirty = true;
+                        },
                         _ => {}
                     }
                 },
+                Event::Resize(nx, ny) => {
+                    term_size = (nx, ny);
+                    dirty = true;
+                },
                 _ => {}
             }
+            let buffer_lines = editor.get_visible_buffer_lines(term_size.1);
+            let digit_len = buffer_lines.last().map(|(idx, _)| (idx + 1).ilog10() + 1).unwrap_or(1);
             if dirty {
                 exec!(
                     terminal::Clear(terminal::ClearType::All),
                     cursor::SavePosition
                 )?;
-                for (line_idx, line)
-                in editor.get_buffer_lines()
-                    .iter()
-                    .enumerate()
-                {
+                let mut lines = buffer_lines.iter();
+                let mut line_idx = 0..(term_size.1 as usize).saturating_sub(1);
+                while let (Some(idx), line) = (line_idx.next(), lines.next()) {
                     exec!(
-                        cursor::MoveTo(0, line_idx as u16),
-                        style::SetForegroundColor(style::Color::Cyan),
-                        style::SetBackgroundColor(style::Color::DarkGrey),
-                        style::Print(format!(" {:>w$} ", line_idx + 1, w = digit_len as usize)),
-                        style::SetForegroundColor(style::Color::Black),
+                        cursor::MoveTo(0, idx as u16),
+                        style::SetBackgroundColor(style::Color::Black)
+                    )?;
+                    match line {
+                        Some((line_idx, _)) => exec!(
+                            style::SetForegroundColor(style::Color::Yellow),
+                            style::Print(format!(" {:>w$} ", line_idx + 1, w = digit_len as usize))
+                        )?,
+                        None => exec!(
+                            style::SetForegroundColor(style::Color::DarkGrey),
+                            style::Print(format!(" {:>w$} ", "~", w = digit_len as usize))
+                        )?,
+                    }
+                    exec!(
+                        style::SetForegroundColor(style::Color::DarkGrey),
                         style::Print("│"),
                         style::SetForegroundColor(style::Color::Reset),
                         style::SetBackgroundColor(style::Color::Reset),
                         style::Print(" "),
-                        style::Print(line),
                     )?;
+                    if let Some((_, line)) = line {
+                        exec!(style::Print(
+                            line.chars()
+                                .take(term_size.0 as usize)
+                                .collect::<String>()
+                        ))?;
+                    }
                 }
                 exec!(cursor::RestorePosition)?;
                 dirty = false;
             }
             let pos = editor.get_pos();
-            exec!(cursor::MoveTo(pos.0 as u16 + digit_len as u16 + 4, pos.1 as u16))?;
+            render_status_bar(save_path.as_ref(), term_size, pos)?;
+            let sc_amt = editor.get_scroll_amount();
+            if pos.1 >= sc_amt && pos.1 <= (term_size.1 as usize - 2 + sc_amt) {
+                exec!(
+                    cursor::MoveTo(
+                        pos.0 as u16 + digit_len as u16 + 4,
+                        (pos.1 as u16).saturating_sub(sc_amt as u16)
+                    ),
+                    cursor::Show
+                )?;
+            } else {
+                exec!(cursor::Hide)?;
+            }
         }
     }
     exec!(terminal::LeaveAlternateScreen, cursor::Show)?;
     terminal::disable_raw_mode()?;
 
-    save(save_path, &editor.get_buffer_lines().join("\n"))?;
+    save(save_path, &editor.get_full_buffer())?;
     Ok(())
 }

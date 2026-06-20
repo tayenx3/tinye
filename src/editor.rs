@@ -5,6 +5,7 @@ pub struct Editor {
     cursor_pos: (usize, usize),
     undo_stack: Vec<(Vec<String>, (usize, usize))>,
     redo_stack: Vec<(Vec<String>, (usize, usize))>,
+    scroll_offset: usize,
 }
 
 impl Editor {
@@ -14,26 +15,20 @@ impl Editor {
             cursor_pos: (0, 0),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            scroll_offset: 0,
         }
     }
 
     pub fn from_buffer<S: Into<String>>(buffer: S) -> Self {
         let buf_str: String = buffer.into();
         if buf_str.is_empty() {
-            Self {
-                buffer_lines: vec![String::new()],
-                cursor_pos: (0, 0),
-                undo_stack: Vec::new(),
-                redo_stack: Vec::new(),
-            }
+            Self::new()
         } else {
             Self {
                 buffer_lines: buf_str.lines()
                     .map(|x| x.to_string())
                     .collect(),
-                cursor_pos: (0, 0),
-                undo_stack: Vec::new(),
-                redo_stack: Vec::new(),
+                ..Self::new()
             }
         }
     }
@@ -54,8 +49,36 @@ impl Editor {
         }
     }
     
-    pub fn get_buffer_lines(&self) -> &[String] {
-        &self.buffer_lines
+    pub fn get_scroll_amount(&self) -> usize {
+        self.scroll_offset
+    }
+    
+    pub fn scroll_up(&mut self, n: usize) {
+        self.scroll_offset = self.scroll_offset.saturating_sub(n);
+    }
+    
+    pub fn scroll_down(&mut self, n: usize) {
+        let max_scroll = self.buffer_lines.len().saturating_sub(1);
+        self.scroll_offset = (self.scroll_offset + n).min(max_scroll);
+    }
+    
+    pub fn get_visible_buffer_lines(&self, term_rows: u16) -> Vec<(usize, &String)> {
+        if self.scroll_offset >= self.buffer_lines.len() {
+            Vec::new()
+        } else {
+            let view_end = self.scroll_offset + term_rows as usize;
+            self.buffer_lines[self.scroll_offset..view_end.min(self.buffer_lines.len())]
+                .iter()
+                .enumerate()
+                .map(|(idx, line)| (
+                    idx + self.scroll_offset,
+                    line
+                )).collect()
+        }
+    }
+    
+    pub fn get_full_buffer(&self) -> String {
+        self.buffer_lines.join("\n")
     }
 
     pub fn get_pos(&self) -> (usize, usize) {

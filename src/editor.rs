@@ -1,6 +1,10 @@
+// todo: improve efficiency with undo/redo
+//       and byte-to-char index conversions
 pub struct Editor {
     buffer_lines: Vec<String>,
-    cursor_pos: (usize, usize)
+    cursor_pos: (usize, usize),
+    undo_stack: Vec<(Vec<String>, (usize, usize))>,
+    redo_stack: Vec<(Vec<String>, (usize, usize))>,
 }
 
 impl Editor {
@@ -8,6 +12,8 @@ impl Editor {
         Self {
             buffer_lines: vec![String::new()],
             cursor_pos: (0, 0),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         }
     }
 
@@ -17,6 +23,8 @@ impl Editor {
             Self {
                 buffer_lines: vec![String::new()],
                 cursor_pos: (0, 0),
+                undo_stack: Vec::new(),
+                redo_stack: Vec::new(),
             }
         } else {
             Self {
@@ -24,7 +32,25 @@ impl Editor {
                     .map(|x| x.to_string())
                     .collect(),
                 cursor_pos: (0, 0),
+                undo_stack: Vec::new(),
+                redo_stack: Vec::new(),
             }
+        }
+    }
+
+    pub fn undo(&mut self) {
+        if let Some((lines, pos)) = self.undo_stack.pop() {
+            self.redo_stack.push((std::mem::take(&mut self.buffer_lines), self.cursor_pos));
+            self.buffer_lines = lines;
+            self.cursor_pos = pos;
+        }
+    }
+    
+    pub fn redo(&mut self) {
+        if let Some((lines, pos)) = self.redo_stack.pop() {
+            self.undo_stack.push((std::mem::take(&mut self.buffer_lines), self.cursor_pos));
+            self.buffer_lines = lines;
+            self.cursor_pos = pos;
         }
     }
     
@@ -37,8 +63,8 @@ impl Editor {
     }
     
     pub fn move_right(&mut self) {
-        let line = &self.buffer_lines[self.cursor_pos.1];
         let (cx, cy) = self.cursor_pos;
+        let line = &self.buffer_lines[cy];
         let line_len = line.chars().count();
         
         if cx < line_len {
@@ -55,8 +81,7 @@ impl Editor {
             self.cursor_pos.0 = cx - 1;
         } else if cy > 0 {
             self.cursor_pos.1 = cy - 1;
-            let prev_line = &self.buffer_lines[self.cursor_pos.1];
-            self.cursor_pos.0 = prev_line.chars().count();
+            self.cursor_pos.0 = self.buffer_lines[self.cursor_pos.1].chars().count();
         }
     }
 
@@ -84,6 +109,8 @@ impl Editor {
 
     pub fn insert_char(&mut self, ch: char) {
         let (cx, cy) = self.cursor_pos;
+        self.redo_stack.clear();
+        self.undo_stack.push((self.buffer_lines.clone(), (cx, cy)));
         let line = &mut self.buffer_lines[cy];
         let cxb = Self::char_to_byte(cx, line);
         if ch == '\n' {
@@ -110,6 +137,8 @@ impl Editor {
     pub fn delete_char(&mut self) {
         let (cx, cy) = self.cursor_pos;
         if cx > 0 {
+            self.redo_stack.clear();
+            self.undo_stack.push((self.buffer_lines.clone(), (cx, cy)));
             let line = &mut self.buffer_lines[self.cursor_pos.1];
             let cxb = Self::char_to_byte(cx, line);
             if line.chars().take(cx).all(|c| c == ' ') {
@@ -124,8 +153,10 @@ impl Editor {
             self.cursor_pos.0 = self.buffer_lines[cy - 1].chars().count();
             if let Some(l) = self.buffer_lines
                 .get_mut(cy)
-                .map(|line| std::mem::take(line))
+                .map(std::mem::take)
             {
+                self.redo_stack.clear();
+                self.undo_stack.push((self.buffer_lines.clone(), (cx, cy)));
                 self.buffer_lines[cy - 1].push_str(&l);
                 self.buffer_lines.remove(cy);
             }
@@ -135,23 +166,27 @@ impl Editor {
     pub fn delete_char_front(&mut self) {
         let (cx, cy) = self.cursor_pos;
 
-        let line = &mut self.buffer_lines[self.cursor_pos.1];
+        let line = &self.buffer_lines[cy];
         let cxb = Self::char_to_byte(cx, line);
         if cx >= line.chars().count() {
             if let Some(l) = self.buffer_lines
                 .get_mut(cy + 1)
-                .map(|line| std::mem::take(line))
+                .map(std::mem::take)
             {
+                self.redo_stack.clear();
+                self.undo_stack.push((self.buffer_lines.clone(), (cx, cy)));
                 self.buffer_lines[cy].push_str(&l);
                 self.buffer_lines.remove(cy + 1);
             }
         } else if cx > 0 && line.chars().skip(cx - 1).all(|c| c == ' ') {
-            line.drain((
-                cxb
-                + line.chars().nth(cx + 1).unwrap().len_utf8()
-            )..);
+            self.redo_stack.clear();
+            self.undo_stack.push((self.buffer_lines.clone(), (cx, cy)));
+            let cxb1 = Self::char_to_byte(cx + 1, line);
+            self.buffer_lines[cy].drain(cxb1..);
         } else {
-            line.remove(cxb);
+            self.redo_stack.clear();
+            self.undo_stack.push((self.buffer_lines.clone(), (cx, cy)));
+            self.buffer_lines[cy].remove(cxb);
         }
     }
 

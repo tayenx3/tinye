@@ -402,9 +402,6 @@ impl Editor {
 
     // this is kinda slow
     pub fn char_to_byte(pos: usize, s: &str) -> usize {
-        s.chars()
-            .take(pos)
-            .map(|ch| ch.len_utf8())
-            .sum()
+        s.chars().take(pos).map(|c| c.len_utf8()).sum()
     }
 }

@@ -42,7 +42,7 @@ fn render_status_bar<P: AsRef<str>>(
     )?;
     let mut file_name_len = 0;
     if let Some(p) = file_name {
-        file_name_len = p.as_ref().len() + 1;
+        file_name_len = p.as_ref().chars().count() + 2;
         let mut fmt = format!(" {} ", p.as_ref());
         fmt.truncate(Editor::char_to_byte(term_size.0 as usize - 1, &fmt));
         exec!(
@@ -56,10 +56,8 @@ fn render_status_bar<P: AsRef<str>>(
         cursor_pos.1 + 1, // line
         cursor_pos.0 + 1, // col
     );
-    pos_fmt.truncate(Editor::char_to_byte(
-        (term_size.0 as usize).saturating_sub(file_name_len + 1),
-        &pos_fmt
-    ));
+    let pos_trunc = (term_size.0 as usize).saturating_sub(file_name_len + 1);
+    pos_fmt.truncate(Editor::char_to_byte(pos_trunc, &pos_fmt));
     let sb_len = file_name_len + pos_fmt.len();
     exec!(
         style::SetForegroundColor(theme.status_bar_fg),

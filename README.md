@@ -2,6 +2,10 @@
 
 a lightweight terminal-based code editor written in Rust
 
+## preview
+
+<img src="preview.png" alt="preview">
+
 ## installation
 
 ```bash

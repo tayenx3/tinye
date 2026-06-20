@@ -1,9 +1,11 @@
 mod editor;
+mod colors;
 
 use crossterm::{cursor, event::{self, Event, KeyCode}, style, terminal};
 use std::{io::Write, time::Duration};
 use editor::Editor;
 use clap::Parser;
+use colors::ColorScheme;
 
 macro_rules! exec {
     ( $( $command:expr ),+ $(,)? ) => {
@@ -16,12 +18,24 @@ macro_rules! exec {
     name = "tinye",
     about = "a lightweight terminal-based code editor written in Rust",
     version,
+    author,
 )]
 pub struct Cli {
-    input: Option<String>
+    input: Option<String>,
+    #[arg(
+        short,
+        long,
+        help = "Color theme"
+    )]
+    theme: Option<ColorScheme>
 }
 
-fn render_status_bar<P: AsRef<str>>(file_name: Option<P>, term_size: (u16, u16), cursor_pos: (usize, usize)) -> anyhow::Result<()> {
+fn render_status_bar<P: AsRef<str>>(
+    file_name: Option<P>,
+    term_size: (u16, u16),
+    cursor_pos: (usize, usize),
+    theme: ColorScheme
+) -> anyhow::Result<()> {
     let mut status_bar = match file_name {
         Some(p) => format!(
             " {} │ {}:{}",
@@ -39,13 +53,13 @@ fn render_status_bar<P: AsRef<str>>(file_name: Option<P>, term_size: (u16, u16),
     let sb_len = status_bar.len();
     exec!(
         cursor::SavePosition,
-        style::SetBackgroundColor(style::Color::Cyan),
-        style::SetForegroundColor(style::Color::Black),
+        style::SetForegroundColor(theme.status_bar_fg),
+        style::SetBackgroundColor(theme.status_bar_bg),
         cursor::MoveTo(0, term_size.1 - 1),
         style::Print(status_bar),
         style::Print(" ".repeat(term_size.0 as usize - sb_len)),
-        style::SetBackgroundColor(style::Color::Reset),
-        style::SetForegroundColor(style::Color::Reset),
+        style::SetForegroundColor(theme.fg),
+        style::SetBackgroundColor(theme.bg),
         cursor::RestorePosition,
     )?;
     Ok(())
@@ -96,6 +110,7 @@ fn save<T: AsRef<str>>(path: Option<T>, contents: &str) -> anyhow::Result<()> {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let theme = cli.theme.unwrap_or(ColorScheme::DEFAULT);
     
     terminal::enable_raw_mode()?;
     exec!(
@@ -206,38 +221,48 @@ fn main() -> anyhow::Result<()> {
                 while let (Some(idx), line) = (line_idx.next(), lines.next()) {
                     exec!(
                         cursor::MoveTo(0, idx as u16),
-                        style::SetBackgroundColor(style::Color::Black)
+                        style::SetBackgroundColor(theme.gutter_bg)
                     )?;
                     match line {
                         Some((line_idx, _)) => exec!(
-                            style::SetForegroundColor(style::Color::Yellow),
+                            style::SetForegroundColor(theme.line_num_fg),
                             style::Print(format!(" {:>w$} ", line_idx + 1, w = digit_len as usize))
                         )?,
                         None => exec!(
-                            style::SetForegroundColor(style::Color::DarkGrey),
+                            style::SetForegroundColor(theme.gutter_fg),
                             style::Print(format!(" {:>w$} ", "~", w = digit_len as usize))
                         )?,
                     }
                     exec!(
-                        style::SetForegroundColor(style::Color::DarkGrey),
+                        style::SetForegroundColor(theme.gutter_fg),
                         style::Print("│"),
-                        style::SetForegroundColor(style::Color::Reset),
-                        style::SetBackgroundColor(style::Color::Reset),
+                        style::SetForegroundColor(theme.fg),
+                        style::SetBackgroundColor(theme.bg),
                         style::Print(" "),
                     )?;
                     if let Some((_, line)) = line {
-                        exec!(style::Print(
-                            line.chars()
-                                .take(term_size.0 as usize)
-                                .collect::<String>()
-                        ))?;
+                        if line.len() < term_size.0 as usize {
+                            exec!(style::Print(format!(
+                                "{}{}",
+                                line,
+                                " ".repeat(term_size.0 as usize - line.len())
+                            )))?;
+                        } else {
+                            exec!(style::Print(
+                                line.chars()
+                                    .take(term_size.0 as usize)
+                                    .collect::<String>()
+                            ))?;
+                        }
+                    } else {
+                        exec!(style::Print(" ".repeat(term_size.0 as usize)))?;
                     }
                 }
                 exec!(cursor::RestorePosition)?;
                 dirty = false;
             }
             let pos = editor.get_pos();
-            render_status_bar(save_path.as_ref(), term_size, pos)?;
+            render_status_bar(save_path.as_ref(), term_size, pos, theme)?;
             let sc_amt = editor.get_scroll_amount();
             if pos.1 >= sc_amt && pos.1 <= (term_size.1 as usize - 2 + sc_amt) {
                 exec!(

@@ -12,6 +12,7 @@ use std::{
 use editor::Editor;
 use clap::Parser;
 use colors::ColorScheme;
+use std::path::PathBuf;
 
 macro_rules! exec {
     ( $( $command:expr ),+ $(,)? ) => {
@@ -32,7 +33,7 @@ macro_rules! flush {
 #[command(
     name = "tinye",
     about = "a lightweight terminal-based code editor written in Rust",
-    version,
+    version = concat!(env!("CARGO_PKG_VERSION"), "-alpha.1"),
     author,
 )]
 pub struct Cli {
@@ -60,7 +61,13 @@ fn render_status_bar<P: AsRef<str>>(
     let mut file_name_len = 0;
     if let Some(p) = file_name {
         file_name_len = p.as_ref().chars().count();
-        let mut fmt = format!(" {} ", p.as_ref());
+        let mut fmt = format!(
+            " {} ", 
+            PathBuf::from(p.as_ref())
+                .file_name()
+                .map(|p| p.display().to_string())
+                .unwrap_or(p.as_ref().to_string())
+        );
         fmt.truncate(Editor::char_to_byte(term_size.0 as usize - 1, &fmt));
         exec!(
             style::SetForegroundColor(theme.status_bar_bg),
@@ -320,93 +327,106 @@ fn main() -> anyhow::Result<()> {
                                 dirty = true;
                             },
                             KeyCode::Enter => {
-                                let command = cmdp.take_command();
-                                let mut args = command.split_whitespace();
-                                match args.next() {
-                                    Some("tm") => {
-                                        let cmd_args = args.collect::<Vec<_>>();
-                                        if !cmd_args.is_empty() {
-                                            let output = if cfg!(windows) {
-                                                Command::new("powershell")
-                                                    .args(&["-Command", &cmd_args.join(" ")])
-                                                    .stdout(Stdio::piped())
-                                                    .stderr(Stdio::piped())
-                                                    .output()?
-                                            } else {
-                                                Command::new("sh")
-                                                    .args(&["-c", &cmd_args.join(" ")])
-                                                    .stdout(Stdio::piped())
-                                                    .stderr(Stdio::piped())
-                                                    .output()?
-                                            };
-                                            std::fs::write(
-                                                format!("{}_out.txt", cmd_args[0]),
-                                                output.stdout
-                                            )?;
-                                            std::fs::write(
-                                                format!("{}_err.txt", cmd_args[0]),
-                                                output.stderr
-                                            )?;
-                                        }
-                                    },
-                                    Some("switchto") | Some("st") => {
-                                        if let Some(path) = &save_path {
-                                            prev_files.push(path.to_string());
-                                        }
-                                        editor = if let Some(path) = args.next() {
-                                            if let Some(path) = args.next() {
-                                                std::fs::write(path, editor.get_full_buffer())?;
-                                            } else if let Some(path) = std::mem::take(&mut save_path) {
-                                                std::fs::write(path, editor.get_full_buffer())?;
+                                let full_command = cmdp.take_command();
+                                for command in full_command.split(";") {
+                                    let mut args = command.split_whitespace();
+                                    match args.next() {
+                                        Some("tm") => {
+                                            let cmd_args = args.collect::<Vec<_>>();
+                                            if !cmd_args.is_empty() {
+                                                let output = if cfg!(windows) {
+                                                    Command::new("powershell")
+                                                        .args(&["-Command", &cmd_args.join(" ")])
+                                                        .stdout(Stdio::piped())
+                                                        .stderr(Stdio::piped())
+                                                        .output()?
+                                                } else {
+                                                    Command::new("sh")
+                                                        .args(&["-c", &cmd_args.join(" ")])
+                                                        .stdout(Stdio::piped())
+                                                        .stderr(Stdio::piped())
+                                                        .output()?
+                                                };
+                                                std::fs::write(
+                                                    format!("{}_out.txt", cmd_args[0]),
+                                                    output.stdout
+                                                )?;
+                                                std::fs::write(
+                                                    format!("{}_err.txt", cmd_args[0]),
+                                                    output.stderr
+                                                )?;
                                             }
+                                        },
+                                        Some("switchto") | Some("st") => {
+                                            if let Some(path) = &save_path {
+                                                prev_files.push(path.to_string());
+                                            }
+                                            editor = if let Some(path) = args.next() {
+                                                if let Some(path) = args.next() {
+                                                    std::fs::write(path, editor.get_full_buffer())?;
+                                                } else if let Some(path) = std::mem::take(&mut save_path) {
+                                                    std::fs::write(path, editor.get_full_buffer())?;
+                                                }
+                                                save_path = Some(path.to_string());
+                                                std::fs::read_to_string(path)
+                                                    .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
+                                                    .unwrap_or(Editor::new())
+                                            } else {
+                                                return Ok(());
+                                            };
+                                        },
+                                        Some("switchnosave") | Some("sns") => {
+                                            if let Some(path) = &save_path {
+                                                prev_files.push(path.to_string());
+                                            }
+                                            editor = if let Some(path) = args.next() {
+                                                save_path = Some(path.to_string());
+                                                std::fs::read_to_string(path)
+                                                    .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
+                                                    .unwrap_or(Editor::new())
+                                            } else {
+                                                return Ok(());
+                                            };
+                                        },
+                                        Some("savefile") | Some("sf") => if let Some(path) = args.next() {
                                             save_path = Some(path.to_string());
-                                            std::fs::read_to_string(path)
-                                                .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
-                                                .unwrap_or(Editor::new())
-                                        } else {
-                                            return Ok(());
-                                        };
-                                    },
-                                    Some("switchnosave") | Some("sns") => {
-                                        if let Some(path) = &save_path {
-                                            prev_files.push(path.to_string());
-                                        }
-                                        editor = if let Some(path) = args.next() {
-                                            save_path = Some(path.to_string());
-                                            std::fs::read_to_string(path)
-                                                .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
-                                                .unwrap_or(Editor::new())
-                                        } else {
-                                            return Ok(());
-                                        };
-                                    },
-                                    Some("savefile") | Some("sf") => if let Some(path) = args.next() {
-                                        save_path = Some(path.to_string());
-                                        std::fs::write(path, editor.get_full_buffer())?;
-                                    } else if let Some(path) = &save_path {
-                                        std::fs::write(path, editor.get_full_buffer())?;
-                                    },
-                                    Some("return") | Some("ret") => if let Some(file) = prev_files.pop() {
-                                        if let Some(path) = args.next() {
                                             std::fs::write(path, editor.get_full_buffer())?;
                                         } else if let Some(path) = &save_path {
                                             std::fs::write(path, editor.get_full_buffer())?;
-                                        }
-                                        save_path = Some(file.clone());
-                                        editor = std::fs::read_to_string(file)
-                                            .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
-                                            .unwrap_or(Editor::new());
-                                    },
-                                    Some("returnnosave") | Some("rns") => if let Some(file) = prev_files.pop() {
-                                        save_path = Some(file.clone());
-                                        editor = std::fs::read_to_string(file)
-                                            .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
-                                            .unwrap_or(Editor::new());
-                                    },
-                                    Some(_) | None => (),
+                                        },
+                                        Some("return") | Some("ret") => if let Some(file) = prev_files.pop() {
+                                            if let Some(path) = args.next() {
+                                                std::fs::write(path, editor.get_full_buffer())?;
+                                            } else if let Some(path) = &save_path {
+                                                std::fs::write(path, editor.get_full_buffer())?;
+                                            }
+                                            save_path = Some(file.clone());
+                                            editor = std::fs::read_to_string(file)
+                                                .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
+                                                .unwrap_or(Editor::new());
+                                        },
+                                        Some("returnnosave") | Some("rns") => if let Some(file) = prev_files.pop() {
+                                            save_path = Some(file.clone());
+                                            editor = std::fs::read_to_string(file)
+                                                .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
+                                                .unwrap_or(Editor::new());
+                                        },
+                                        Some("quit") | Some("q") => {
+                                            if let Some(path) = args.next() {
+                                                save_path = Some(path.to_string());
+                                            }
+                                            break 'main;
+                                        },
+                                        Some("quitnosave") | Some("qns") => {
+                                            exec!(terminal::LeaveAlternateScreen, cursor::Show)?;
+                                            return Ok(());
+                                        },
+                                        Some(_) | None => (),
+                                    }
                                 }
                                 cursor_moved = true;
                                 dirty = true;
+                                in_editor = true;
                             },
                             _ => {}
                         }

@@ -1,5 +1,7 @@
 # `tinye`
 
+<img src="https://img.shields.io/badge/pre--release-v0.1.0--alpha.1-blue">
+
 a lightweight, non-modal, keyboard-driven, terminal-based code editor written in Rust
 
 ## preview
@@ -21,7 +23,7 @@ tinye --version
 
 ### the command palette
 
-`tinye` is very minimalistic and delegated. its power remains in the command palette (Ctrl+Shift+P)
+`tinye` is very minimalistic and delegated. its power remains in the command palette (Ctrl+P)
 
 any CLI tool that doesn't expect input from stdin can be ran with `tm command [args]`
 and `tinye` will write the stdout to `<command-name>_out.txt` and the stdout to `<command-name>_err.txt`
@@ -41,6 +43,8 @@ the only commands `tinye` provides in the command palette are:
 - `savefile/sf [path]` - write the current buffer to the save path *(warning: will do nothing if save path is not supplied)*
 - `return/ret [path]` - save the current buffer load the last opened file before the current file *(warning: will do nothing if save path is not supplied)*
 - `returnnosave/rns` - same as `ret` but discards the current changes
+- `quit/q [path]` - saves the current file and exits (same as pressing `Esc`)
+- `quitnosave/qns` - same as `q` but discards the current changes
 
 (arguments wrapped in `<...>` are required while arguments wrapped in `\[...\]` are not)
 

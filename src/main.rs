@@ -1,4 +1,5 @@
 mod editor;
+mod cmdp;
 mod colors;
 
 use crossterm::{cursor, event::{self, Event, KeyCode}, style, terminal};
@@ -37,6 +38,7 @@ pub struct Cli {
 }
 
 fn render_status_bar<P: AsRef<str>>(
+    in_editor: bool,
     file_name: Option<P>,
     term_size: (u16, u16),
     cursor_pos: (usize, usize),
@@ -59,9 +61,10 @@ fn render_status_bar<P: AsRef<str>>(
         )?;
     }
     let mut pos_fmt = format!(
-        " {}:{} ",
+        " {}:{}  {}",
         cursor_pos.1 + 1, // line
         cursor_pos.0 + 1, // col
+        in_editor.then(|| "EDITOR").unwrap_or("CMD")
     );
     let pos_trunc = (term_size.0 as usize).saturating_sub(file_name_len);
     pos_fmt.truncate(Editor::char_to_byte(pos_trunc, &pos_fmt));
@@ -135,6 +138,7 @@ fn main() -> anyhow::Result<()> {
         terminal::DisableLineWrap,
     )?;
 
+    let mut in_editor = true;
     let mut term_size = terminal::size()?;
     let mut save_path = None;
     let mut editor = if let Some(path) = cli.input {
@@ -145,8 +149,7 @@ fn main() -> anyhow::Result<()> {
     } else {
         Editor::new()
     };
-
-    // this just means if the VIEW BUFFER is dirty, not the actual editor buffer
+    let mut cmdp = cmdp::CommandPalette::new();
     let mut line_buf = String::with_capacity(100);
     let mut space_buf = " ".repeat(term_size.0 as usize);
     let mut dirty = true;
@@ -155,107 +158,169 @@ fn main() -> anyhow::Result<()> {
     const RENDER_INTERVAL: Duration = Duration::from_millis(16);
     'main: loop {
         while event::poll(Duration::from_millis(0))? {
-            match event::read()? {
-                Event::Key(key_event) if key_event.kind != event::KeyEventKind::Release => {
-                    match key_event.code {
-                        KeyCode::Esc => break 'main,
-                        KeyCode::Char('z')
-                            if key_event.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                                editor.undo();
+            if in_editor {
+                match event::read()? {
+                    Event::Key(key_event) if key_event.kind != event::KeyEventKind::Release => {
+                        match key_event.code {
+                            KeyCode::Esc => break 'main,
+                            KeyCode::Char('p')
+                                if key_event.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                                    in_editor = false;
+                                    cursor_moved = true;
+                                    dirty = true;
+                                },
+                            KeyCode::Char('z')
+                                if key_event.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                                    editor.undo();
+                                    dirty = true;
+                                    cursor_moved = true;
+                                },
+                            KeyCode::Char('y')
+                                if key_event.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                                    editor.redo();
+                                    dirty = true;
+                                    cursor_moved = true;
+                                },
+                            KeyCode::Right => {
+                                editor.move_right();
+                                cursor_moved = true;
+                            },
+                            KeyCode::Left => {
+                                editor.move_left();
+                                cursor_moved = true;
+                            },
+                            KeyCode::Up => if key_event.modifiers.contains(event::KeyModifiers::ALT) {
+                                editor.scroll_up(5);
+                                dirty = true;
+                                cursor_moved = true;
+                            } else if key_event.modifiers.contains(event::KeyModifiers::CONTROL) {
+                                editor.scroll_up(1);
+                                dirty = true;
+                                cursor_moved = true;
+                            } else {
+                                editor.move_up();
+                                cursor_moved = true;
+                            },
+                            KeyCode::Down => if key_event.modifiers.contains(event::KeyModifiers::ALT) {
+                                editor.scroll_down(5);
+                                dirty = true;
+                                cursor_moved = true;
+                            } else if key_event.modifiers.contains(event::KeyModifiers::CONTROL) {
+                                editor.scroll_down(1);
+                                dirty = true;
+                                cursor_moved = true;
+                            } else {
+                                editor.move_down();
+                                cursor_moved = true;
+                            },
+                            KeyCode::Enter => {
+                                editor.insert_char('\n');
                                 dirty = true;
                                 cursor_moved = true;
                             },
-                        KeyCode::Char('y')
-                            if key_event.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                                editor.redo();
+                            KeyCode::Char(ch) => {
+                                editor.insert_char(ch);
                                 dirty = true;
                                 cursor_moved = true;
                             },
-                        KeyCode::Right => {
-                            editor.move_right();
-                            cursor_moved = true;
-                        },
-                        KeyCode::Left => {
-                            editor.move_left();
-                            cursor_moved = true;
-                        },
-                        KeyCode::Up => if key_event.modifiers.contains(event::KeyModifiers::ALT) {
-                            editor.scroll_up(5);
-                            dirty = true;
-                            cursor_moved = true;
-                        } else if key_event.modifiers.contains(event::KeyModifiers::CONTROL) {
-                            editor.scroll_up(1);
-                            dirty = true;
-                            cursor_moved = true;
-                        } else {
-                            editor.move_up();
-                            cursor_moved = true;
-                        },
-                        KeyCode::Down => if key_event.modifiers.contains(event::KeyModifiers::ALT) {
-                            editor.scroll_down(5);
-                            dirty = true;
-                            cursor_moved = true;
-                        } else if key_event.modifiers.contains(event::KeyModifiers::CONTROL) {
-                            editor.scroll_down(1);
-                            dirty = true;
-                            cursor_moved = true;
-                        } else {
-                            editor.move_down();
-                            cursor_moved = true;
-                        },
-                        KeyCode::Enter => {
-                            editor.insert_char('\n');
-                            dirty = true;
-                            cursor_moved = true;
-                        },
-                        KeyCode::Char(ch) => {
-                            editor.insert_char(ch);
-                            dirty = true;
-                            cursor_moved = true;
-                        },
-                        KeyCode::Tab => {
-                            editor.insert_str("    ");
-                            dirty = true;
-                            cursor_moved = true;
-                        },
-                        KeyCode::Backspace => {
-                            editor.delete_char();
-                            dirty = true;
-                            cursor_moved = true;
-                        },
-                        KeyCode::Delete => {
-                            editor.delete_char_front();
-                            dirty = true;
-                            cursor_moved = true;
-                        },
-                        KeyCode::Home => {
-                            editor.home();
-                            cursor_moved = true;
-                        },
-                        KeyCode::End => {
-                            editor.end();
-                            cursor_moved = true;
-                        },
-                        KeyCode::PageUp => {
-                            editor.scroll_up(term_size.1 as usize - 1);
-                            dirty = true;
-                            cursor_moved = true;
-                        },
-                        KeyCode::PageDown => {
-                            editor.scroll_down(term_size.1 as usize - 1);
-                            dirty = true;
-                            cursor_moved = true;
-                        },
-                        _ => {}
-                    }
-                },
-                Event::Resize(nx, ny) => {
-                    term_size = (nx, ny);
-                    space_buf = " ".repeat(nx as usize);
-                    dirty = true;
-                    cursor_moved = true;
-                },
-                _ => {}
+                            KeyCode::Tab => {
+                                editor.insert_str("    ");
+                                dirty = true;
+                                cursor_moved = true;
+                            },
+                            KeyCode::Backspace => {
+                                editor.delete_char();
+                                dirty = true;
+                                cursor_moved = true;
+                            },
+                            KeyCode::Delete => {
+                                editor.delete_char_front();
+                                dirty = true;
+                            },
+                            KeyCode::Home => {
+                                editor.home();
+                                cursor_moved = true;
+                            },
+                            KeyCode::End => {
+                                editor.end();
+                                cursor_moved = true;
+                            },
+                            KeyCode::PageUp => {
+                                editor.scroll_up(term_size.1 as usize - 1);
+                                dirty = true;
+                                cursor_moved = true;
+                            },
+                            KeyCode::PageDown => {
+                                editor.scroll_down(term_size.1 as usize - 1);
+                                dirty = true;
+                                cursor_moved = true;
+                            },
+                            _ => {}
+                        }
+                    },
+                    Event::Resize(nx, ny) => {
+                        term_size = (nx, ny);
+                        space_buf = " ".repeat(nx as usize);
+                        dirty = true;
+                        cursor_moved = true;
+                    },
+                    _ => {}
+                }
+            } else {
+                match event::read()? {
+                    Event::Key(key_event) if key_event.kind != event::KeyEventKind::Release => {
+                        match key_event.code {
+                            KeyCode::Esc => {
+                                in_editor = true;
+                                cursor_moved = true;
+                                dirty = true;
+                            },
+                            KeyCode::Char('z')
+                                if key_event.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                                    cmdp.undo();
+                                    dirty = true;
+                                    cursor_moved = true;
+                                },
+                            KeyCode::Char('y')
+                                if key_event.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                                    cmdp.redo();
+                                    dirty = true;
+                                    cursor_moved = true;
+                                },
+                            KeyCode::Right => {
+                                cmdp.move_right();
+                                cursor_moved = true;
+                            },
+                            KeyCode::Left => {
+                                cmdp.move_left();
+                                cursor_moved = true;
+                            },
+                            KeyCode::Char(ch) => {
+                                cmdp.insert_char(ch);
+                                cursor_moved = true;
+                                dirty = true;
+                            },
+                            KeyCode::Backspace => {
+                                cmdp.delete_char();
+                                cursor_moved = true;
+                                dirty = true;
+                            },
+                            KeyCode::Delete => {
+                                cmdp.delete_char_front();
+                                cursor_moved = true;
+                                dirty = true;
+                            },
+                            _ => {}
+                        }
+                    },
+                    Event::Resize(nx, ny) => {
+                        term_size = (nx, ny);
+                        space_buf = " ".repeat(nx as usize);
+                        dirty = true;
+                        cursor_moved = true;
+                    },
+                    _ => {}
+                }
             }
         }
         let sc_amt = editor.get_scroll_amount();
@@ -269,6 +334,11 @@ fn main() -> anyhow::Result<()> {
             let mut lines = buffer_lines.iter().enumerate();
             let mut line_idx = 0..(term_size.1 as usize).saturating_sub(1);
             while let (Some(idx), line) = (line_idx.next(), lines.next()) {
+                if !in_editor
+                    && idx < (cmdp.get_cursor() / term_size.0 as usize) + 1
+                {
+                    continue;
+                }
                 exec!(
                     cursor::MoveTo(0, idx as u16),
                     style::SetBackgroundColor(theme.gutter_bg)
@@ -313,7 +383,7 @@ fn main() -> anyhow::Result<()> {
                         exec!(style::Print(&line_buf))?;
                     }
                 } else {
-                    exec!(style::Print(&space_buf[0..term_size.0 as usize]))?;
+                    exec!(style::Print(&space_buf[(digit_len + 4)..term_size.0 as usize]))?;
                 }
             }
             exec!(cursor::RestorePosition, cursor::Show)?;
@@ -322,25 +392,58 @@ fn main() -> anyhow::Result<()> {
         }
         let pos = editor.get_pos();
         if cursor_moved {
-            render_status_bar(save_path.as_ref(), term_size, pos, theme)?;
-            if pos.1 >= sc_amt && pos.1 <= (term_size.1 as usize - 2 + sc_amt) {
-                exec!(
-                    cursor::MoveTo(
-                        pos.0 as u16 + digit_len as u16 + 4,
-                        (pos.1 as u16).saturating_sub(sc_amt as u16)
-                    ),
-                    cursor::Show
-                )?;
-            } else {
-                exec!(cursor::Hide)?;
+            render_status_bar(in_editor, save_path.as_ref(), term_size, pos, theme)?;
+            if in_editor {
+                if pos.1 >= sc_amt && pos.1 <= (term_size.1 as usize - 2 + sc_amt) {
+                    exec!(
+                        cursor::MoveTo(
+                            pos.0 as u16 + digit_len as u16 + 4,
+                            (pos.1 as u16).saturating_sub(sc_amt as u16)
+                        ),
+                        cursor::Show
+                    )?;
+                } else {
+                    exec!(cursor::Hide)?;
+                }
+                cursor_moved = false;
             }
-            cursor_moved = false;
-        } else {
+        } else if in_editor {
             if pos.1 >= sc_amt && pos.1 <= (term_size.1 as usize - 2 + sc_amt) {
                 exec!(cursor::Show)?;
             } else {
                 exec!(cursor::Hide)?;
             }
+        }
+        if !in_editor {
+            exec!(
+                cursor::Hide,
+                cursor::MoveTo(0, 0),
+                style::SetBackgroundColor(theme.status_bar_bg),
+                style::SetForegroundColor(theme.status_bar_fg),
+                style::Print("> "),
+            )?;
+            let c = cmdp.get_command();
+            let cmd_len = c.chars().count();
+            let tsizex = term_size.0 as usize;
+            {
+                let mut cx = 0;
+                let mut cy = 0;
+                while cx <= cmd_len {
+                    if cy < 1 {
+                        exec!(cursor::MoveTo(2, 0))?;
+                        if cx + tsizex - 2 < cmd_len {
+                            exec!(style::Print(&c[cx..(cx + tsizex - 2)]))?;
+                        }
+                    }
+                }
+            }
+            let cmx = cmdp.get_cursor();
+            exec!(
+                cursor::Show,
+                cursor::MoveTo(((cmx + 2) % tsizex) as u16, (cmx / tsizex) as u16),
+                style::SetBackgroundColor(theme.bg),
+                style::SetForegroundColor(theme.fg),
+            )?;
         }
         
         flush!()?;

@@ -16,3 +16,41 @@ tinye --version
 ```
 
 (you can install cargo at [rustup.rs](https://rustup.rs))
+
+## features
+
+### the command palette
+
+`tinye` is very minimalistic and delegated. its power remains in the command palette (Ctrl+Shift+P)
+
+any CLI tool that doesn't expect input from stdin can be ran with `tm command [args]` and `tinye` will give you the output
+
+so instead of making a search feature, you can do `tm cat -n foo.txt | grep "bar"` (or `tm findstr /n "bar" foo.txt` on Windows)
+
+`tinye`'s main philosophy is *"why do \[X\] when \[Y\], which can do the same and is battle-tested, is within reach?"*
+
+### commands
+
+the only commands `tinye` provides in the command palette are:
+
+- `deletelines/dl <amount>` - delete lines from the current line up to `amount` lines quickly
+- `tm <command>` - spawns a child process for `command` and show the stdout/stderr
+
+you can define your own commands by making a `.tinyeconfig` file and writing:
+
+```
+# comment
+
+commands:
+  command0 ..args: ...
+  command1 ..args: ...
+```
+
+here's an example:
+
+```
+commands:
+  cc $inp(str) $out(str): tm gcc $inp -o $out
+  cc $inp(str): cc $inp target/a.exe
+  ccall: cc src/*.c target/main.exe
+```

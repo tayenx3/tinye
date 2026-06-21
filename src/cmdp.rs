@@ -19,6 +19,11 @@ impl CommandPalette {
         }
     }
 
+    pub fn take_command(&mut self) -> String {
+        self.cursor = 0;
+        std::mem::take(&mut self.command)
+    }
+
     pub fn get_command(&self) -> &str {
         &self.command
     }
@@ -36,7 +41,7 @@ impl CommandPalette {
     }
     
     pub fn redo(&mut self) {
-        if let Some((c, pos)) = self.undo_stack.pop() {
+        if let Some((c, pos)) = self.redo_stack.pop() {
             self.undo_stack.push((std::mem::take(&mut self.command), self.cursor));
             self.command = c;
             self.cursor = pos;

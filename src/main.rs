@@ -3,7 +3,12 @@ mod cmdp;
 mod colors;
 
 use crossterm::{cursor, event::{self, Event, KeyCode}, style, terminal};
-use std::{io::Write as _, time::Duration, fmt::Write as _};
+use std::{
+    io::Write as _,
+    time::Duration,
+    fmt::Write as _,
+    process::{Command, Stdio},
+};
 use editor::Editor;
 use clap::Parser;
 use colors::ColorScheme;
@@ -11,7 +16,10 @@ use colors::ColorScheme;
 macro_rules! exec {
     ( $( $command:expr ),+ $(,)? ) => {
         ::crossterm::queue!(::std::io::stdout(), $( $command ),+)
-    }
+    };
+    () => {
+        <::std::result::Result<(), std::io::Error>>::Ok(())
+    };
 }
 
 macro_rules! flush {
@@ -138,6 +146,7 @@ fn main() -> anyhow::Result<()> {
         terminal::DisableLineWrap,
     )?;
 
+    let mut prev_files = Vec::new();
     let mut in_editor = true;
     let mut term_size = terminal::size()?;
     let mut save_path = None;
@@ -310,6 +319,95 @@ fn main() -> anyhow::Result<()> {
                                 cursor_moved = true;
                                 dirty = true;
                             },
+                            KeyCode::Enter => {
+                                let command = cmdp.take_command();
+                                let mut args = command.split_whitespace();
+                                match args.next() {
+                                    Some("tm") => {
+                                        let cmd_args = args.collect::<Vec<_>>();
+                                        if !cmd_args.is_empty() {
+                                            let output = if cfg!(windows) {
+                                                Command::new("powershell")
+                                                    .args(&["-Command", &cmd_args.join(" ")])
+                                                    .stdout(Stdio::piped())
+                                                    .stderr(Stdio::piped())
+                                                    .output()?
+                                            } else {
+                                                Command::new("sh")
+                                                    .args(&["-c", &cmd_args.join(" ")])
+                                                    .stdout(Stdio::piped())
+                                                    .stderr(Stdio::piped())
+                                                    .output()?
+                                            };
+                                            std::fs::write(
+                                                format!("{}_out.txt", cmd_args[0]),
+                                                output.stdout
+                                            )?;
+                                            std::fs::write(
+                                                format!("{}_err.txt", cmd_args[0]),
+                                                output.stderr
+                                            )?;
+                                        }
+                                    },
+                                    Some("switchto") | Some("st") => {
+                                        if let Some(path) = &save_path {
+                                            prev_files.push(path.to_string());
+                                        }
+                                        editor = if let Some(path) = args.next() {
+                                            if let Some(path) = args.next() {
+                                                std::fs::write(path, editor.get_full_buffer())?;
+                                            } else if let Some(path) = std::mem::take(&mut save_path) {
+                                                std::fs::write(path, editor.get_full_buffer())?;
+                                            }
+                                            save_path = Some(path.to_string());
+                                            std::fs::read_to_string(path)
+                                                .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
+                                                .unwrap_or(Editor::new())
+                                        } else {
+                                            return Ok(());
+                                        };
+                                    },
+                                    Some("switchnosave") | Some("sns") => {
+                                        if let Some(path) = &save_path {
+                                            prev_files.push(path.to_string());
+                                        }
+                                        editor = if let Some(path) = args.next() {
+                                            save_path = Some(path.to_string());
+                                            std::fs::read_to_string(path)
+                                                .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
+                                                .unwrap_or(Editor::new())
+                                        } else {
+                                            return Ok(());
+                                        };
+                                    },
+                                    Some("savefile") | Some("sf") => if let Some(path) = args.next() {
+                                        save_path = Some(path.to_string());
+                                        std::fs::write(path, editor.get_full_buffer())?;
+                                    } else if let Some(path) = &save_path {
+                                        std::fs::write(path, editor.get_full_buffer())?;
+                                    },
+                                    Some("return") | Some("ret") => if let Some(file) = prev_files.pop() {
+                                        if let Some(path) = args.next() {
+                                            std::fs::write(path, editor.get_full_buffer())?;
+                                        } else if let Some(path) = &save_path {
+                                            std::fs::write(path, editor.get_full_buffer())?;
+                                        }
+                                        save_path = Some(file.clone());
+                                        editor = std::fs::read_to_string(file)
+                                            .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
+                                            .unwrap_or(Editor::new());
+                                    },
+                                    Some("returnnosave") | Some("rns") => if let Some(file) = prev_files.pop() {
+                                        save_path = Some(file.clone());
+                                        editor = std::fs::read_to_string(file)
+                                            .map(|contents| Editor::from_buffer(contents.replace('\t', "    ")))
+                                            .unwrap_or(Editor::new());
+                                    },
+                                    Some(_) | None => (),
+                                }
+                                cursor_moved = true;
+                                dirty = true;
+                            },
                             _ => {}
                         }
                     },
@@ -425,22 +523,26 @@ fn main() -> anyhow::Result<()> {
             let c = cmdp.get_command();
             let cmd_len = c.chars().count();
             let tsizex = term_size.0 as usize;
-            {
-                let mut cx = 0;
-                let mut cy = 0;
-                while cx <= cmd_len {
-                    if cy < 1 {
-                        exec!(cursor::MoveTo(2, 0))?;
-                        if cx + tsizex - 2 < cmd_len {
-                            exec!(style::Print(&c[cx..(cx + tsizex - 2)]))?;
-                        }
-                    }
+            if cmd_len <= tsizex - 2 {
+                exec!(style::Print(&c), style::Print(&space_buf[cmd_len..tsizex - 2]))?;
+            } else {
+                exec!(style::Print(&c[..(tsizex - 2)]))?;
+                let mut cx = tsizex - 2;
+                let mut cy = 1;
+                while cmd_len > cx {
+                    exec!(
+                        cursor::MoveTo(0, cy),
+                        style::Print(trunc(&c[cx..], tsizex))
+                    )?;
+                    cx += tsizex;
+                    cy += 1;
                 }
+                exec!(style::Print(&space_buf[..(cmd_len % tsizex)]))?;
             }
-            let cmx = cmdp.get_cursor();
+            let cmx = cmdp.get_cursor() + 2;
             exec!(
                 cursor::Show,
-                cursor::MoveTo(((cmx + 2) % tsizex) as u16, (cmx / tsizex) as u16),
+                cursor::MoveTo((cmx % tsizex) as u16, (cmx / tsizex) as u16),
                 style::SetBackgroundColor(theme.bg),
                 style::SetForegroundColor(theme.fg),
             )?;
@@ -453,4 +555,13 @@ fn main() -> anyhow::Result<()> {
 
     save(save_path, &editor.get_full_buffer())?;
     Ok(())
+}
+
+#[inline]
+fn trunc(s: &str, pos: usize) -> &str {
+    if s.chars().count() <= pos {
+        s
+    } else {
+        &s[..pos]
+    }
 }

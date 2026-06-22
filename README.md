@@ -48,3 +48,19 @@ the only commands `tinye` provides in the command palette are:
 - `quitnosave/qns` - same as `q` but discards the current changes
 
 (arguments wrapped in `<...>` are required while arguments wrapped in `\[...\]` are not)
+
+and you can chain (not pipe) them by separating them with `;`
+
+### keybinds
+
+the main set of keybinds are:
+
+- Ctrl+Z - undo
+- Ctrl+Y - redo
+- Ctrl+P - open command palette
+- Ctrl+Up - scroll up by 1 line
+- Ctrl+Down - scroll down by 1 line
+- Alt+Up - scroll up by 5 lines
+- Alt+Down - scroll down by 5 lines
+- PageUp - scroll up by the amount of visible lines
+- PageDown - scroll down by the amount of visible lines

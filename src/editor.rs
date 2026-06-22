@@ -1,3 +1,5 @@
+use crate::utils;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LineId(usize);
 
@@ -241,7 +243,7 @@ impl Editor {
         let (cx, cy) = self.cursor_pos;
         let (line_id, line) = &self.buffer_lines[cy];
         self.redo_stack.clear();
-        let cxb = Self::char_to_byte(cx, line);
+        let cxb = utils::char_to_byte(cx, line);
         if ch == '\n' {
             let indent = line.chars()
                 .take_while(|c| c.is_whitespace() && *c != '\n')
@@ -294,13 +296,13 @@ impl Editor {
                 },
                 (cx, cy)
             ));
-            let cxb = Self::char_to_byte(cx, line);
+            let cxb = utils::char_to_byte(cx, line);
             if line.chars().take(cx).all(|c| c == ' ') {
                 self.cursor_pos.0 = 0;
                 line.drain(..cxb);
             } else {
                 self.cursor_pos.0 = cx - 1;
-                line.remove(Self::char_to_byte(self.cursor_pos.0, line));
+                line.remove(utils::char_to_byte(self.cursor_pos.0, line));
             }
         } else if cy > 0 {
             self.cursor_pos.1 = cy - 1;
@@ -331,7 +333,7 @@ impl Editor {
         let (cx, cy) = self.cursor_pos;
 
         let (line_id, line) = &self.buffer_lines[cy];
-        let cxb = Self::char_to_byte(cx, line);
+        let cxb = utils::char_to_byte(cx, line);
         if cx >= line.chars().count() {
             if let Some((id, l)) = self.buffer_lines
                 .get_mut(cy + 1)
@@ -353,7 +355,7 @@ impl Editor {
                 self.buffer_lines.remove(cy + 1);
             }
         } else if cx > 0 && line.chars().skip(cx - 1).all(|c| c == ' ') {
-            let cxb1 = Self::char_to_byte(cx + 1, line);
+            let cxb1 = utils::char_to_byte(cx + 1, line);
             self.redo_stack.clear();
             self.undo_stack.push((
                 Action {
@@ -395,10 +397,5 @@ impl Editor {
             self.cursor_pos.1 = self.buffer_lines.len() - 1;
             self.cursor_pos.0 = self.buffer_lines[self.cursor_pos.1].1.chars().count();
         }
-    }
-
-    // this is kinda slow
-    pub fn char_to_byte(pos: usize, s: &str) -> usize {
-        s.chars().take(pos).map(|c| c.len_utf8()).sum()
     }
 }

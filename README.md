@@ -26,10 +26,11 @@ tinye --version
 `tinye` is very minimalistic and delegated. its power remains in the command palette (Ctrl+P)
 
 any CLI tool that doesn't expect input from stdin can be ran with `tm command [args]`
-and `tinye` will write the stdout to `<command-name>_out.txt` and the stdout to `<command-name>_err.txt`
+and `tinye` will write the stdout to `<command-name>_out.txt` and the stderr to `<command-name>_err.txt`
 
 so instead of making a search feature, you can do `tm cat -n foo.txt | grep "bar"` (or `tm findstr /n "bar" foo.txt` on Windows)
 and then `st grep_out.txt` (or `st findstr_out.txt`)
+and then `rns` when you're done
 
 `tinye`'s main philosophy is *"why do \[X\] when \[Y\], which can do the same and is battle-tested, is within reach?"*
 
@@ -47,22 +48,3 @@ the only commands `tinye` provides in the command palette are:
 - `quitnosave/qns` - same as `q` but discards the current changes
 
 (arguments wrapped in `<...>` are required while arguments wrapped in `\[...\]` are not)
-
-you can define your own commands by making a `.tinyeconfig` file and writing:
-
-```
-# comment
-
-commands:
-  command0 ..args: ...
-  command1 ..args: ...
-```
-
-here's an example:
-
-```
-commands:
-  cc $inp(str) $out(str): tm gcc $inp -o $out
-  cc $inp(str): cc $inp target/a.exe
-  ccall: cc src/*.c target/main.exe
-```

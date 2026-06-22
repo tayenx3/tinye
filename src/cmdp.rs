@@ -1,4 +1,4 @@
-use super::editor::Editor;
+use crate::utils;
 
 // basically a single-line editor
 pub struct CommandPalette {
@@ -63,7 +63,7 @@ impl CommandPalette {
     pub fn insert_char(&mut self, ch: char) {
         self.redo_stack.clear();
         self.undo_stack.push((self.command.clone(), self.cursor));
-        self.command.insert(Editor::char_to_byte(self.cursor, &self.command), ch);
+        self.command.insert(utils::char_to_byte(self.cursor, &self.command), ch);
         self.cursor += 1;
     }
 
@@ -72,7 +72,7 @@ impl CommandPalette {
         self.undo_stack.push((self.command.clone(), self.cursor));
         if self.cursor > 0 {
             self.cursor -= 1;
-            self.command.remove(Editor::char_to_byte(self.cursor, &self.command));
+            self.command.remove(utils::char_to_byte(self.cursor, &self.command));
         }
     }
     
@@ -80,7 +80,7 @@ impl CommandPalette {
         self.redo_stack.clear();
         self.undo_stack.push((self.command.clone(), self.cursor));
         if self.cursor < self.command.chars().count() {
-            self.command.remove(Editor::char_to_byte(self.cursor, &self.command));
+            self.command.remove(utils::char_to_byte(self.cursor, &self.command));
         }
     }
 }

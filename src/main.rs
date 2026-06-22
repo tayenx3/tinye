@@ -2,6 +2,12 @@ mod editor;
 mod cmdp;
 mod colors;
 
+mod utils {
+    pub fn char_to_byte(pos: usize, s: &str) -> usize {
+        s.chars().take(pos).map(|c| c.len_utf8()).sum()
+    }
+}
+
 use crossterm::{cursor, event::{self, Event, KeyCode}, style, terminal};
 use std::{
     io::Write as _,
@@ -68,7 +74,7 @@ fn render_status_bar<P: AsRef<str>>(
                 .map(|p| p.display().to_string())
                 .unwrap_or(p.as_ref().to_string())
         );
-        fmt.truncate(Editor::char_to_byte(term_size.0 as usize - 1, &fmt));
+        fmt.truncate(utils::char_to_byte(term_size.0 as usize - 1, &fmt));
         exec!(
             style::SetForegroundColor(theme.status_bar_bg),
             style::SetBackgroundColor(theme.status_bar_fg),
@@ -82,7 +88,7 @@ fn render_status_bar<P: AsRef<str>>(
         in_editor.then(|| "EDITOR").unwrap_or("CMD")
     );
     let pos_trunc = (term_size.0 as usize).saturating_sub(file_name_len);
-    pos_fmt.truncate(Editor::char_to_byte(pos_trunc, &pos_fmt));
+    pos_fmt.truncate(utils::char_to_byte(pos_trunc, &pos_fmt));
     let sb_len = file_name_len + pos_fmt.chars().count();
     exec!(
         style::SetForegroundColor(theme.status_bar_fg),
